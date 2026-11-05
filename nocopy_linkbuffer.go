@@ -961,3 +961,73 @@ func (node *linkBufferNode) reusable() bool {
 func (node *linkBufferNode) readExposed() bool {
 	return node.mode&flagReadExposed > 0
 }
+
+// ReadMark identifies a retained read position. It is valid only until Release.
+// Taking a mark does not allocate, walk nodes, or inspect message contents.
+type ReadMark struct {
+	node   *linkBufferNode
+	offset int
+}
+
+func (b *UnsafeLinkBuffer) MarkRead() ReadMark { return ReadMark{b.read, b.read.off} }
+
+// ConsumedLen counts bytes consumed since mark, including Skip. Like the mark,
+// it is valid only before Release. It neither allocates nor inspects payloads.
+func (b *UnsafeLinkBuffer) ConsumedLen(mark ReadMark) int {
+	start, size := mark.offset, 0
+	for node := mark.node; node != nil; node = node.next {
+		// The reactor may extend the current write node. For the current
+		// reader node only off is needed; do not read its mutable slice header.
+		end := node.off
+		if node != b.read {
+			end = len(node.buf)
+		}
+		if end > start {
+			size += end - start
+		}
+		if node == b.read {
+			break
+		}
+		start = 0
+	}
+	return size
+}
+
+// ConsumedSlices borrows only bytes consumed since mark, without coalescing.
+func (b *UnsafeLinkBuffer) ConsumedSlices(mark ReadMark, dst [][]byte) [][]byte {
+	start := mark.offset
+	for node := mark.node; node != nil; node = node.next {
+		// The reactor may extend the current write node. For the current
+		// reader node only off is needed; do not read its mutable slice header.
+		end := node.off
+		if node != b.read {
+			end = len(node.buf)
+		}
+		if end > start {
+			dst = append(dst, node.buf[start:end])
+		}
+		if node == b.read {
+			break
+		}
+		start = 0
+	}
+	return dst
+}
+
+// PeekSlices borrows readable nodes without creating a contiguous payload.
+func (b *UnsafeLinkBuffer) PeekSlices(n int, dst [][]byte) [][]byte {
+	for node := b.read; n > 0 && node != nil; node = node.next {
+		v := node.buf[node.off:]
+		if len(v) > n {
+			v = v[:n]
+		}
+		if len(v) > 0 {
+			dst = append(dst, v)
+			n -= len(v)
+		}
+		if node == b.flush {
+			break
+		}
+	}
+	return dst
+}
