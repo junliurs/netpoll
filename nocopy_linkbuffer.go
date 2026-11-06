@@ -56,10 +56,11 @@ type UnsafeLinkBuffer struct {
 	length     int64
 	mallocSize int
 
-	head  *linkBufferNode // release head
-	read  *linkBufferNode // read head
-	flush *linkBufferNode // malloc head
-	write *linkBufferNode // malloc tail
+	head       *linkBufferNode // release head
+	read       *linkBufferNode // read head
+	flush      *linkBufferNode // malloc head
+	write      *linkBufferNode // malloc tail
+	readMarked bool // retain consumed nodes until Release while a ReadMark is live
 
 	// buf allocated by Next when cross-package, which should be freed when release
 	caches [][]byte
@@ -116,6 +117,9 @@ func (b *UnsafeLinkBuffer) readCopy(p []byte) (n int) {
 	// advance read past empty nodes
 	for b.read != b.flush && b.read.Len() == 0 {
 		b.read = b.read.next
+	}
+	if b.readMarked {
+		return n
 	}
 	// release consumed nodes that are not readExposed.
 	// exposed nodes stay in the chain so Release() can free them later.
@@ -272,6 +276,7 @@ func (b *UnsafeLinkBuffer) Skip(n int) (err error) {
 // Release the node that has been read.
 // b.flush == nil indicates that this LinkBuffer is created by LinkBuffer.Slice
 func (b *UnsafeLinkBuffer) Release() (err error) {
+	b.readMarked = false
 	for b.read != b.flush && b.read.Len() == 0 {
 		b.read = b.read.next
 	}
@@ -969,7 +974,10 @@ type ReadMark struct {
 	offset int
 }
 
-func (b *UnsafeLinkBuffer) MarkRead() ReadMark { return ReadMark{b.read, b.read.off} }
+func (b *UnsafeLinkBuffer) MarkRead() ReadMark {
+	b.readMarked = true
+	return ReadMark{b.read, b.read.off}
+}
 
 // ConsumedLen counts bytes consumed since mark, including Skip. Like the mark,
 // it is valid only before Release. It neither allocates nor inspects payloads.

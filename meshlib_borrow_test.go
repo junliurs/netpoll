@@ -39,3 +39,53 @@ func TestMeshlibBorrowConsumedMessagePreservesNodesAndBoundary(t *testing.T) {
 		t.Fatalf("consumed %d bytes across nodes", got)
 	}
 }
+
+func TestMeshlibReadMarksSurviveCopyReadsUntilRelease(t *testing.T) {
+	b := NewLinkBuffer()
+	defer b.Close()
+	for _, text := range []string{"first-block", "middle-block", "last-block"} {
+		_, _ = b.WriteBinary([]byte(text))
+		_ = b.Flush()
+	}
+	first := b.MarkRead()
+	if n := b.readCopy(make([]byte, len("first-block"))); n != len("first-block") {
+		t.Fatal(n)
+	}
+	second := b.MarkRead()
+	if n := b.readCopy(make([]byte, len("middle-block")+1)); n != len("middle-block")+1 {
+		t.Fatal(n)
+	}
+	for _, test := range []struct {
+		mark ReadMark
+		want string
+	}{{first, "first-blockmiddle-blockl"}, {second, "middle-blockl"}} {
+		if got := b.ConsumedLen(test.mark); got != len(test.want) {
+			t.Fatalf("consumed=%d want=%d", got, len(test.want))
+		}
+		parts := b.ConsumedSlices(test.mark, nil)
+		if got := string(bytes.Join(parts, nil)); got != test.want {
+			t.Fatalf("borrowed=%q want=%q", got, test.want)
+		}
+	}
+	if err := b.Release(); err != nil {
+		t.Fatal(err)
+	}
+	if b.readMarked || b.head != b.read {
+		t.Fatal("Release retained a mark or consumed nodes")
+	}
+}
+
+func TestMeshlibCopyReadsStillReleaseNodesWithoutMarks(t *testing.T) {
+	b := NewLinkBuffer()
+	defer b.Close()
+	for _, text := range []string{"first-block", "last-block"} {
+		_, _ = b.WriteBinary([]byte(text))
+		_ = b.Flush()
+	}
+	if n := b.readCopy(make([]byte, len("first-block")+1)); n != len("first-block")+1 {
+		t.Fatal(n)
+	}
+	if b.head != b.read {
+		t.Fatal("unmarked copy read retained consumed nodes")
+	}
+}
