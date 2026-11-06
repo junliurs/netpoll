@@ -60,7 +60,7 @@ type UnsafeLinkBuffer struct {
 	read       *linkBufferNode // read head
 	flush      *linkBufferNode // malloc head
 	write      *linkBufferNode // malloc tail
-	readMarked bool // retain consumed nodes until Release while a ReadMark is live
+	readMarked bool            // retain consumed nodes until Release while a ReadMark is live
 
 	// buf allocated by Next when cross-package, which should be freed when release
 	caches [][]byte
