@@ -242,6 +242,12 @@ func (b *SafeLinkBuffer) MarkRead() ReadMark {
 	return b.UnsafeLinkBuffer.MarkRead()
 }
 
+func (b *SafeLinkBuffer) ConsumedLen(mark ReadMark) int {
+	b.Lock()
+	defer b.Unlock()
+	return b.UnsafeLinkBuffer.ConsumedLen(mark)
+}
+
 func (b *SafeLinkBuffer) ConsumedSlices(mark ReadMark, dst [][]byte) [][]byte {
 	b.Lock()
 	defer b.Unlock()
